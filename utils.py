@@ -17,6 +17,12 @@ def calculate_all_distances_fixed(target_player_id, db_path="football_data.db"):
         if shared_teams and not shared_team_seasons:
             score += 0.05
 
+        league1 = set(profile1["league_id"])
+        league2 = set(profile2["league_id"])
+        shared_league = league1 & league2
+        if shared_league and not shared_team_seasons and not shared_teams:
+            score += 0.025
+
         positions1 = set(profile1["position_id"])
         positions2 = set(profile2["position_id"])
         if positions1 & positions2:
@@ -45,6 +51,11 @@ def calculate_all_distances_fixed(target_player_id, db_path="football_data.db"):
 
         return round(score, 6)
 
+    def get_name(profile):
+        if profile.display_name.values[0]:
+            return profile.display_name.values[0]
+        return f"{profile.first_name.values[0]} f{profile.last_name.values[0]}"
+
     conn = sqlite3.connect(db_path)
 
     # Get all player IDs
@@ -52,16 +63,34 @@ def calculate_all_distances_fixed(target_player_id, db_path="football_data.db"):
     all_player_ids = all_players_df["id"].tolist()
 
     # Preload all player profiles
-    profiles = {}
-    for pid in all_player_ids:
-        query = f"""
-        SELECT P.id, P.date_of_birth, P.nationality_id, PS.team_id, PS.season_id,
-               PS.position_id, PS.shirt_number, PS.is_captain, P.first_name, P.last_name
-        FROM Players P
-        JOIN PlayerTeamSeason PS ON P.id = PS.player_id
-        WHERE P.id = {pid}
-        """
-        profiles[pid] = pd.read_sql_query(query, conn)
+    # Ensure all_player_ids is a list of integers
+    placeholders = ",".join(["?"] * len(all_player_ids))
+
+    query = f"""
+    SELECT P.id, P.date_of_birth, P.nationality_id, PS.team_id, PS.season_id,
+           PS.position_id, PS.shirt_number, PS.is_captain, P.first_name, P.last_name, P.display_name, S.league_id
+    FROM Players P
+    JOIN PlayerTeamSeason PS ON P.id = PS.player_id
+    LEFT JOIN Seasons S on S.id = PS.season_id
+    WHERE P.id IN ({placeholders})
+    """
+
+    df = pd.read_sql_query(query, conn, params=all_player_ids)
+
+    # Optional: split into dictionary by player ID (if needed)
+    profiles = {pid: df[df["id"] == pid] for pid in all_player_ids}
+
+    # profiles = {}
+    # for pid in all_player_ids:
+    #     query = f"""
+    #     SELECT P.id, P.date_of_birth, P.nationality_id, PS.team_id, PS.season_id,
+    #            PS.position_id, PS.shirt_number, PS.is_captain, P.first_name, P.last_name, P.display_name, S.league_id
+    #     FROM Players P
+    #     JOIN PlayerTeamSeason PS ON P.id = PS.player_id
+    #     LEFT JOIN Seasons S on S.id = PS.season_id
+    #     WHERE P.id = {pid}
+    #     """
+    #     profiles[pid] = pd.read_sql_query(query, conn)
 
     target_profile = profiles[target_player_id]
     similarity_scores = {}
@@ -79,15 +108,27 @@ def calculate_all_distances_fixed(target_player_id, db_path="football_data.db"):
         target_player_id: {
             "id": target_player_id,
             "rank": 1,
-            "name": f"{target_profile.first_name.values[0]} f{target_profile.last_name.values[0]}"
+            "name": get_name(target_profile)
         }
     }
     for rank, (pid, _) in enumerate(sorted_scores, start=2):
         distance_map[pid] = {
             "id": pid,
             "rank": rank,
-            "name": f"{profiles[pid].first_name.values[0]} f{profiles[pid].last_name.values[0]}"
+            "name": get_name(profiles[pid])
         }
 
     conn.close()
     return list(distance_map.values())
+
+
+def get_all_players(db_path="football_data.db"):
+    conn = sqlite3.connect(db_path)
+
+    all_players = \
+        pd.read_sql_query("SELECT id, display_name as 'name', "
+                          "REPLACE(image, 'https://cdn.sportmonks.com/images/soccer/', '') AS image "
+                          "FROM Players", conn)
+    players_json = all_players.to_dict(orient="records")
+
+    return players_json

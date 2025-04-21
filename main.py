@@ -8,7 +8,7 @@ import time
 # ===================================================
 import requests
 
-from test import calculate_all_distances_fixed
+from utils import get_all_players, calculate_all_distances_fixed
 
 
 class SportMonksAPIClient:
@@ -311,23 +311,17 @@ class FootballDBHandler:
 # Main: Fetch data from API and load to DB
 # ===========================================
 def main():
-    # ds = calculate_all_distances_fixed(37708454)
-    # print(ds)
-    # return
+    ds = get_all_players()
+    # ds = calculate_all_distances_fixed(123742)
+    print(json.dumps(ds))
+    return
 
-    # ---------------------------
     # Configuration Parameters
-    # ---------------------------
     API_KEY = "iv5k1aO9nQc2tFeFZ4hNTiLUHgk3y5y4cVxmgoLqAv0JKspGVuxkKPnSpvEm"  # Replace with your API-Football API key
     DB_FILENAME = "football_data.db"
 
-    # ---------------------------
     # Step 1: Fetch Data from API
-    # ---------------------------
     api_client = SportMonksAPIClient(API_KEY)
-
-    # leagues = api_client.get_leagues_by_country(320)
-    # [{"id": 271, "sport_id": 1, "country_id": 320, "name": "Superliga", "active": true, "short_code": "DNK SL", "image_path": "https://cdn.sportmonks.com/images/soccer/leagues/271.png", "type": "league", "sub_type": "domestic", "last_played_at": "2025-04-07 17:00:00", "category": 2, "has_jerseys": false}, {"id": 1659, "sport_id": 1, "country_id": 320, "name": "Superliga Play-offs", "active": true, "short_code": null, "image_path": "https://cdn.sportmonks.com/images/soccer/leagues/27/1659.png", "type": "league", "sub_type": "play-offs", "last_played_at": "2019-05-19 14:00:00", "category": 3, "has_jerseys": false}]
 
     # Maccabi TLV - 2997; israel season - 23660
 
@@ -336,9 +330,9 @@ def main():
     # db_handler.populate_database(api_client, db_handler.conn, 375)  # ליגה לאומית
     # db_handler.populate_database(api_client, db_handler.conn, 564)  # La Liga
     # db_handler.populate_database(api_client, db_handler.conn, 8)  # Premier League
-    db_handler.populate_database(api_client, db_handler.conn, 82)  # Bundesliga
-    db_handler.populate_database(api_client, db_handler.conn, 301)  # Ligue 1
-    db_handler.populate_database(api_client, db_handler.conn, 384)  # Serie A
+    # db_handler.populate_database(api_client, db_handler.conn, 82)  # Bundesliga
+    # db_handler.populate_database(api_client, db_handler.conn, 301)  # Ligue 1
+    # db_handler.populate_database(api_client, db_handler.conn, 384)  # Serie A
     db_handler.close()
 
 
