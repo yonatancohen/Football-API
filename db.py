@@ -1,15 +1,41 @@
+from datetime import datetime
+from typing import Optional
+
+import json
 import sqlite3
 import pandas as pd
+import atexit
 
 
 class FootballDBHandler:
-    def __init__(self, db_filename="football_data.db"):
+    _instance = None
+    _initialized = False
+
+    def __new__(cls, db_filename: str = "football_data.db"):
+        # Singleton: only one instance
+        if cls._instance is None:
+            cls._instance = super(FootballDBHandler, cls).__new__(cls)
+        return cls._instance
+
+    def __init__(self, db_filename: str = "football_data.db"):
+        if self._initialized:
+            # Already initialized, skip table creation
+            return
+
         self.db_filename = db_filename
+
+        # Open connection once
         self.conn = sqlite3.connect(self.db_filename)
         self.conn.execute("PRAGMA foreign_keys = ON")
+
+        # First-time setup
         self.create_tables()
 
-        self.conn.close()
+        # Register cleanup on program exit
+        atexit.register(self.close)
+
+        # Mark as initialized to prevent re-creating tables
+        type(self)._initialized = True
 
     def create_tables(self):
         cursor = self.conn.cursor()
@@ -98,8 +124,18 @@ class FootballDBHandler:
             );
         ''')
 
+        # Games
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS Games (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+                activate_at  DATETIME,
+                distance     JSON,
+                max_rank    INTEGER
+            );
+        ''')
+
         self.conn.commit()
-        self.conn.close()
 
     def populate_database(self, api_client, league_id):
         self.conn = sqlite3.connect(self.db_filename)
@@ -212,9 +248,7 @@ class FootballDBHandler:
                     """, (player_id, team_id, season_id, pos_id, jersey_number, is_captain))
             print("\n")
 
-            conn.commit()
-
-        self.conn.close()
+            self.conn.commit()
 
     def get_players_for_translate(self):
         self.conn = sqlite3.connect(self.db_filename)
@@ -237,7 +271,6 @@ class FootballDBHandler:
                    ORDER BY p.id,p.display_name
                """
         df = pd.read_sql_query(query, self.conn)
-        self.conn.close()
 
         return df
 
@@ -250,7 +283,6 @@ class FootballDBHandler:
                               "ELSE display_name_he END AS name, "
                               "REPLACE(image, 'https://cdn.sportmonks.com/images/soccer/', '') AS image "
                               "FROM Players", self.conn)
-        self.conn.close()
 
         players_json = all_players.to_dict(orient="records")
 
@@ -266,4 +298,65 @@ class FootballDBHandler:
         """, (first_name, last_name, display_name, player_id))
 
         self.conn.commit()
-        self.conn.close()
+
+    def get_game(self, game_id: Optional[int]):
+        self.conn = sqlite3.connect(self.db_filename)
+
+        if game_id:
+            game = pd.read_sql_query(f"SELECT id, created_at, activate_at, distance, max_rank FROM Games WHERE id = {game_id}", self.conn)
+        else:
+            now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            game = pd.read_sql_query(f"SELECT id, created_at, activate_at, distance, max_rank FROM Games WHERE activate_at <= '{now}' "
+                                        "ORDER BY activate_at DESC LIMIT 1", self.conn)
+        if not game.empty:
+            return game.iloc[0].to_dict()
+
+        return None
+
+    def get_player_rank(self, game_id: int, player_id: int) -> int | None:
+        """
+        Retrieve the rank of a player from the distance JSON for a valid,
+        non-expired game using pandas read_sql_query.
+        """
+        now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        df_game = pd.read_sql_query("SELECT distance FROM Games WHERE id = ? AND activate_at < ?", self.conn, params=(game_id, now))
+
+        if df_game.empty or pd.isna(df_game.loc[0, "distance"]):
+            return None
+
+        try:
+            df_distance = pd.DataFrame(json.loads(df_game.loc[0, "distance"]))
+            result = df_distance.loc[df_distance["id"] == player_id, "rank"]
+            if not result.empty:
+                return int(result.iloc[0])
+        except Exception:
+            return None
+
+        return None
+
+    def create_game(self, activate_at, distance):
+        self.conn = sqlite3.connect(self.db_filename)
+        cursor = self.conn.cursor()
+
+        max_rank = max(item["rank"] for item in distance)
+
+        cursor.execute("""
+            INSERT INTO Games (activate_at, distance, max_rank)
+            VALUES (?, ?, ?)
+            """, (activate_at, json.dumps(distance), max_rank))
+
+        self.conn.commit()
+
+    def close(self):
+        if hasattr(self, 'conn') and self.conn:
+            try:
+                self.conn.close()
+            except Exception:
+                pass
+        # Reset singleton state
+        type(self)._instance = None
+        type(self)._initialized = False
+
+    def __del__(self):
+        # Ensure connection is closed when instance is destroyed
+        self.close()

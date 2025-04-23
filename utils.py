@@ -1,4 +1,6 @@
 import sqlite3
+from datetime import datetime
+
 import pandas as pd
 
 DB_PATH = "football_data.db"
@@ -103,3 +105,25 @@ def calculate_all_distances_fixed(target_player_id):
 
     conn.close()
     return list(distance_map.values())
+
+
+def parse_boolean(value):
+    if value == 'False' or value == 'false' or value == '0' or value == 0:
+        value = False
+    elif value:
+        value = True
+    else:
+        value = False
+
+    return value
+
+
+def parse_datetime(value):
+    if '+' in value:
+        return datetime.strptime(value, "%Y-%m-%d %H:%M:%S%z")
+
+    return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+
+
+def parse_date(value):
+    return datetime.strptime(value, "%Y-%m-%d")
