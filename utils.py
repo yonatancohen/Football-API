@@ -24,8 +24,8 @@ def calculate_all_distances_fixed(target_player_id):
         league1 = set(profile1["league_id"])
         league2 = set(profile2["league_id"])
         shared_league = league1 & league2
-        if shared_league and not shared_team_seasons and not shared_teams:
-            score += 0.025
+        if shared_league:
+            score += 0.15
 
         positions1 = set(profile1["position_id"])
         positions2 = set(profile2["position_id"])
