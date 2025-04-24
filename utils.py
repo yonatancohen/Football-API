@@ -6,7 +6,7 @@ import pandas as pd
 DB_PATH = "football_data.db"
 
 
-def calculate_all_distances_fixed(target_player_id):
+def calculate_all_distances_fixed(target_player_id, leagues_id=None):
     def score_profiles(profile1, profile2):
         score = 0.0
 
@@ -58,23 +58,32 @@ def calculate_all_distances_fixed(target_player_id):
     conn = sqlite3.connect(DB_PATH)
 
     # Get all player IDs
-    all_players_df = pd.read_sql_query("SELECT id FROM Players", conn)
+    first_query = """
+        SELECT DISTINCT(P.id) 
+        FROM Players P
+    """
+    if leagues_id is not None and len(leagues_id) > 0:
+        placeholders = ",".join(["?"] * len(leagues_id))
+        first_query += f" INNER JOIN PlayerTeamSeason PS ON PS.PLAYER_ID = P.ID INNER JOIN Seasons S on S.id = PS.season_id " \
+                       f"AND S.league_id IN ({placeholders}) "
+    all_players_df = pd.read_sql_query(first_query, conn, params=leagues_id)
+
     all_player_ids = all_players_df["id"].tolist()
 
-    # Preload all player profiles
-    # Ensure all_player_ids is a list of integers
-    placeholders = ",".join(["?"] * len(all_player_ids))
-
     query = f"""
-    SELECT P.id, P.date_of_birth, P.nationality_id, PS.team_id, PS.season_id,
-           PS.position_id, PS.shirt_number, PS.is_captain, P.first_name, P.last_name, P.display_name, S.league_id
-    FROM Players P
-    JOIN PlayerTeamSeason PS ON P.id = PS.player_id
-    LEFT JOIN Seasons S on S.id = PS.season_id
-    WHERE P.id IN ({placeholders})
+        SELECT DISTINCT(P.id), P.date_of_birth, P.nationality_id, PS.team_id, PS.season_id,
+               PS.position_id, PS.shirt_number, PS.is_captain, S.league_id
+        FROM Players P
+        JOIN PlayerTeamSeason PS ON P.id = PS.player_id
     """
+    if leagues_id is not None and len(leagues_id) > 0:
+        placeholders = ",".join(["?"] * len(leagues_id))
+        query += f" INNER JOIN Seasons S on S.id = PS.season_id AND S.league_id IN ({placeholders}) "
 
-    df = pd.read_sql_query(query, conn, params=all_player_ids)
+    placeholders = ",".join(["?"] * len(all_player_ids))
+    query += f"WHERE P.id IN ({placeholders})"
+
+    df = pd.read_sql_query(query, conn, params=leagues_id + all_player_ids)
 
     # Optional: split into dictionary by player ID (if needed)
     profiles = {pid: df[df["id"] == pid] for pid in all_player_ids}

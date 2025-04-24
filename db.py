@@ -132,13 +132,15 @@ class FootballDBHandler:
                 activate_at  DATETIME,
                 distance     JSON,
                 max_rank    INTEGER
+                hint        TEXT
+                leagues     JSON
+                players     JSON
             );
         ''')
 
         self.conn.commit()
 
     def populate_database(self, api_client, league_id):
-        self.conn = sqlite3.connect(self.db_filename)
         cursor = self.conn.cursor()
 
         league_seasons = api_client.get_seasons_by_league(league_id)
@@ -251,7 +253,6 @@ class FootballDBHandler:
             self.conn.commit()
 
     def get_players_for_translate(self):
-        self.conn = sqlite3.connect(self.db_filename)
         query = """
                    SELECT DISTINCT p.id,
                        p.display_name, 
@@ -274,19 +275,35 @@ class FootballDBHandler:
 
         return df
 
-    def get_json_players(self):
-        self.conn = sqlite3.connect(self.db_filename)
+    def get_autocomplete_players(self, leagues_id=None, player_name=None):
+        query = """
+                    SELECT DISTINCT(P.id),
+                           CASE WHEN display_name GLOB '[A-Z]. *' THEN first_name_he || ' ' || last_name_he 
+                                ELSE display_name_he END AS name 
+                           --,REPLACE(image, 'https://cdn.sportmonks.com/images/soccer/', '') AS image 
+                    FROM Players P
+                """
 
-        all_players = \
-            pd.read_sql_query("SELECT id,"
-                              "CASE WHEN display_name GLOB '[A-Z]. *' THEN first_name_he || ' ' || last_name_he "
-                              "ELSE display_name_he END AS name, "
-                              "REPLACE(image, 'https://cdn.sportmonks.com/images/soccer/', '') AS image "
-                              "FROM Players", self.conn)
+        params = []
+        if player_name:
+            query += " WHERE name LIKE ?"
+            params.append(f"%{player_name}%")
 
-        players_json = all_players.to_dict(orient="records")
+        if leagues_id:
+            placeholders = ",".join(["?"] * len(leagues_id))
+            query += """
+                        INNER JOIN PlayerTeamSeason PS ON PS.player_id = P.id
+                        INNER JOIN Seasons S ON S.id = PS.season_id AND S.league_id IN ({})
+                    """.format(placeholders)
+            params.extend(leagues_id)
 
-        return players_json
+        all_players = pd.read_sql_query(query, self.conn, params=params)
+        return all_players.to_dict(orient="records")
+
+    def get_player(self, player_id):
+        query = """SELECT * FROM PLAYERS WHERE ID = ?"""
+        player = pd.read_sql_query(query, self.conn, params=[player_id])
+        return player.to_dict(orient="records")
 
     def update_player(self, player_id, first_name, last_name, display_name):
         cursor = self.conn.cursor()
@@ -300,24 +317,18 @@ class FootballDBHandler:
         self.conn.commit()
 
     def get_game(self, game_id: Optional[int]):
-        self.conn = sqlite3.connect(self.db_filename)
-
         if game_id:
-            game = pd.read_sql_query(f"SELECT id, created_at, activate_at, distance, max_rank FROM Games WHERE id = {game_id}", self.conn)
+            game = pd.read_sql_query(f"SELECT id, created_at, activate_at, distance, max_rank, hint, players FROM Games WHERE id = {game_id}", self.conn)
         else:
             now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-            game = pd.read_sql_query(f"SELECT id, created_at, activate_at, distance, max_rank FROM Games WHERE activate_at <= '{now}' "
-                                        "ORDER BY activate_at DESC LIMIT 1", self.conn)
+            game = pd.read_sql_query(f"SELECT id, created_at, activate_at, distance, max_rank, hint, players FROM Games WHERE activate_at <= '{now}' "
+                                     "ORDER BY activate_at DESC LIMIT 1", self.conn)
         if not game.empty:
             return game.iloc[0].to_dict()
 
         return None
 
     def get_player_rank(self, game_id: int, player_id: int) -> int | None:
-        """
-        Retrieve the rank of a player from the distance JSON for a valid,
-        non-expired game using pandas read_sql_query.
-        """
         now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
         df_game = pd.read_sql_query("SELECT distance FROM Games WHERE id = ? AND activate_at < ?", self.conn, params=(game_id, now))
 
@@ -334,18 +345,28 @@ class FootballDBHandler:
 
         return None
 
-    def create_game(self, activate_at, distance):
-        self.conn = sqlite3.connect(self.db_filename)
+    def create_game(self, activate_at: str, distance, hint: str, leagues):
         cursor = self.conn.cursor()
 
         max_rank = max(item["rank"] for item in distance)
 
+        players_search = self.get_autocomplete_players(leagues_id=leagues)
+
         cursor.execute("""
-            INSERT INTO Games (activate_at, distance, max_rank)
-            VALUES (?, ?, ?)
-            """, (activate_at, json.dumps(distance), max_rank))
+            INSERT INTO Games (activate_at, distance, max_rank, hint, leagues, players)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """, (activate_at, json.dumps(distance), max_rank, hint, json.dumps(leagues, ensure_ascii=False),
+                  json.dumps(players_search, ensure_ascii=False)))
 
         self.conn.commit()
+
+    def get_leagues(self):
+        leagues = pd.read_sql_query("SELECT ID, NAME FROM LEAGUES ORDER BY NAME", self.conn)
+        return leagues.to_dict(orient="records")
+
+    def get_countries(self):
+        countries = pd.read_sql_query("SELECT ID, NAME FROM COUNTRIES ORDER BY NAME", self.conn)
+        return countries.to_dict(orient="records")
 
     def close(self):
         if hasattr(self, 'conn') and self.conn:

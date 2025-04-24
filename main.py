@@ -23,7 +23,9 @@ def get_api_data():
 
 
 if __name__ == "__main__":
-    # db_handler = FootballDBHandler()
+    db_handler = FootballDBHandler()
+    # db_handler.create_game("2025-04-05 10:00:00", [{"id": 123, "rank": 1}], "", [372])
+    # a = db_handler.get_autocomplete_players(player_name="ערן")
     # a = json.dumps(db_handler.get_json_players(), ensure_ascii=False)
     # ds = calculate_all_distances_fixed(123742)
 
