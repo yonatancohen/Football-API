@@ -41,6 +41,13 @@ class GameRequest(BaseModel):
     player_id: int
 
 
+class PlayerUpdateRequest(BaseModel):
+    first_name_he: str
+    last_name_he: str
+    display_name_he: str
+    nationality_id: int
+
+
 @app.post("/api/game")
 async def create_game(request: CreateGameRequest):
     try:
@@ -127,8 +134,19 @@ async def search_players(query: str):
 
 
 @app.get("/api/admin/players/{player_id}")
-async def search_players(player_id: int):
+async def get_player(player_id: int):
     try:
         return FootballDBHandler().get_player(player_id)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@app.post("/api/admin/players/{player_id}")
+async def get_player(player_id: int, request: PlayerUpdateRequest):
+    try:
+        print(player_id)
+        print(request)
+        return FootballDBHandler().update_player(player_id, request.first_name_he, request.last_name_he, request.display_name_he,
+                                                 request.nationality_id)
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))

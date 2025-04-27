@@ -303,18 +303,32 @@ class FootballDBHandler:
     def get_player(self, player_id):
         query = """SELECT * FROM PLAYERS WHERE ID = ?"""
         player = pd.read_sql_query(query, self.conn, params=[player_id])
-        return player.to_dict(orient="records")
+        return player.iloc[0].to_dict()
 
-    def update_player(self, player_id, first_name, last_name, display_name):
+    def update_player(self, player_id, first_name_he, last_name_he, display_name_he, nationality_id=None):
         cursor = self.conn.cursor()
 
-        cursor.execute("""
-            UPDATE Players
-            SET first_name_he = ?, last_name_he = ?, display_name_he = ?
-            WHERE id = ?
-        """, (first_name, last_name, display_name, player_id))
+        # Always update these fields
+        fields = ["first_name_he = ?", "last_name_he = ?", "display_name_he = ?"]
+        params = [first_name_he, last_name_he, display_name_he]
 
-        self.conn.commit()
+        # Only add nationality_id if provided
+        if nationality_id is not None:
+            fields.append("nationality_id = ?")
+            params.append(nationality_id)
+
+            # Add player_id for WHERE clause
+            params.append(player_id)
+
+            # Build dynamic SQL
+            sql = f"""
+                UPDATE Players
+                SET {', '.join(fields)}
+                WHERE id = ?
+            """
+
+            cursor.execute(sql, params)
+            self.conn.commit()
 
     def get_game(self, game_id: Optional[int]):
         if game_id:
