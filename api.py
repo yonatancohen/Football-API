@@ -11,7 +11,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from db import FootballDBHandler
-from utils import calculate_all_distances_fixed
+from utils import calculate_all_distances_fixed, parse_datetime
 
 # todo: support debug?
 app = FastAPI(debug=True)
@@ -48,29 +48,12 @@ class PlayerUpdateRequest(BaseModel):
     nationality_id: int
 
 
-@app.post("/api/game")
-async def create_game(request: CreateGameRequest):
-    try:
-        if request.player_id:
-            # Calculate player
-            results = calculate_all_distances_fixed(request.player_id, request.leagues)
-
-            db_handler = FootballDBHandler()
-            db_handler.create_game(activate_at=request.activate_at, distance=results, hint=request.hint, leagues=request.leagues)
-
-            return Response(status_code=status.HTTP_200_OK)
-
-        return Response(status_code=status.HTTP_404_NOT_FOUND)
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
-
-
 @app.get("/api/game/")
-async def get_game(game_id: Optional[int] = None):
+async def get_customer_game(game_id: Optional[int] = None):
     try:
         # todo: get game from db/cache
         db_handler = FootballDBHandler()
-        game = db_handler.get_game(game_id)
+        game = db_handler.get_customer_game(game_id)
         if game:
             return {
                 "id": game["id"],
@@ -109,6 +92,7 @@ async def get_players_by_leagues(leagues_id: Optional[str]):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
+### Admin URLS ###
 @app.get("/api/admin/leagues")
 async def get_leagues():
     try:
@@ -144,9 +128,62 @@ async def get_player(player_id: int):
 @app.post("/api/admin/players/{player_id}")
 async def get_player(player_id: int, request: PlayerUpdateRequest):
     try:
-        print(player_id)
-        print(request)
         return FootballDBHandler().update_player(player_id, request.first_name_he, request.last_name_he, request.display_name_he,
                                                  request.nationality_id)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@app.get("/api/admin/games/search")
+async def search_game(game_date: Optional[str] = None, player_name: Optional[str] = None):
+    try:
+        db_handler = FootballDBHandler()
+        return db_handler.search_game(game_date, player_name)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@app.post("/api/admin/games")
+async def create_game(request: CreateGameRequest):
+    try:
+        if request.player_id:
+            # Calculate player
+            results = calculate_all_distances_fixed(request.player_id, request.leagues)
+
+            db_handler = FootballDBHandler()
+            db_handler.create_game(activate_at=parse_datetime(request.activate_at), distance=results, hint=request.hint,
+                                   leagues=request.leagues)
+
+            return Response(status_code=status.HTTP_200_OK)
+
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@app.get("/api/admin/games/{game_id}")
+async def get_game(game_id: int):
+    try:
+        db_handler = FootballDBHandler()
+        result = db_handler.get_game(game_id)
+        if result:
+            return result
+
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@app.put("/api/admin/games/{game_id}")
+async def update_admin_game(game_id: int, request: CreateGameRequest):
+    try:
+        # Calculate player
+        results = calculate_all_distances_fixed(request.player_id, request.leagues)
+
+        db_handler = FootballDBHandler()
+        db_handler.update_game(game_id=game_id, activate_at=parse_datetime(request.activate_at), distance=results, hint=request.hint,
+                               leagues=request.leagues)
+
+        return Response(status_code=status.HTTP_200_OK)
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))

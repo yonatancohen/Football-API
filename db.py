@@ -330,32 +330,56 @@ class FootballDBHandler:
             cursor.execute(sql, params)
             self.conn.commit()
 
-    def get_game(self, game_id: Optional[int]):
+    def get_customer_game(self, game_id: Optional[int]):
         if game_id:
-            game = pd.read_sql_query(f"SELECT id, created_at, activate_at, distance, max_rank, hint, players FROM Games WHERE id = {game_id}", self.conn)
+            game = pd.read_sql_query(
+                f"SELECT id, created_at, activate_at, distance, max_rank, hint, players FROM Games WHERE id = {game_id}", self.conn)
         else:
             now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-            game = pd.read_sql_query(f"SELECT id, created_at, activate_at, distance, max_rank, hint, players FROM Games WHERE activate_at <= '{now}' "
-                                     "ORDER BY activate_at DESC LIMIT 1", self.conn)
+            game = pd.read_sql_query(
+                f"SELECT id, created_at, activate_at, distance, max_rank, hint, players FROM Games WHERE activate_at <= '{now}' "
+                "ORDER BY activate_at DESC LIMIT 1", self.conn)
         if not game.empty:
             return game.iloc[0].to_dict()
 
         return None
 
-    def get_player_rank(self, game_id: int, player_id: int) -> int | None:
-        now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-        df_game = pd.read_sql_query("SELECT distance FROM Games WHERE id = ? AND activate_at < ?", self.conn, params=(game_id, now))
+    def search_game(self, date: Optional[str], player_name: Optional[str]):
+        params = []
 
-        if df_game.empty or pd.isna(df_game.loc[0, "distance"]):
-            return None
+        query = "SELECT g.id, g.activate_at, g.hint, p.display_name_he as player_name " \
+                "FROM Games AS g INNER JOIN Players AS p ON p.id = json_extract(g.distance, '$[0].id') "
 
-        try:
-            df_distance = pd.DataFrame(json.loads(df_game.loc[0, "distance"]))
-            result = df_distance.loc[df_distance["id"] == player_id, "rank"]
-            if not result.empty:
-                return int(result.iloc[0])
-        except Exception:
-            return None
+        if date:
+            query += f"WHERE date(g.activate_at) = ? "
+            params.append(date)
+
+        if player_name:
+            query += "AND (p.display_name_he LIKE ? OR p.first_name_he LIKE ? OR p.last_name_he LIKE ?)"
+            params.append(f"%{player_name}%")
+            params.append(f"%{player_name}%")
+            params.append(f"%{player_name}%")
+
+        games = pd.read_sql_query(query, self.conn, params=params)
+        return games.to_dict(orient="records")
+
+    def get_game(self, game_id: int):
+        game = pd.read_sql_query(
+            "SELECT g.id, g.activate_at, g.hint, g.leagues, p.display_name_he as player_name, p.id as player_id FROM Games as g "
+            "INNER JOIN Players AS p ON p.id = json_extract(g.distance, '$[0].id') "
+            "WHERE g.id = ?", self.conn, params=[game_id])
+        if not game.empty:
+            game_details = game.iloc[0].to_dict()
+
+            leagues = game_details['leagues'].replace('[', '').replace(']', '').split(',')
+
+            placeholders = ",".join(["?"] * len(leagues))
+            leagues = pd.read_sql_query("SELECT id, name FROM Leagues WHERE ID IN ({})".format(placeholders), self.conn,
+                                        params=leagues)
+
+            del game_details['leagues']
+
+            return {'game': game_details, 'leagues': leagues.to_dict(orient="records")}
 
         return None
 
@@ -373,6 +397,38 @@ class FootballDBHandler:
                   json.dumps(players_search, ensure_ascii=False)))
 
         self.conn.commit()
+
+    def update_game(self, game_id: int, activate_at, distance, hint: str, leagues):
+        cursor = self.conn.cursor()
+
+        max_rank = max(item["rank"] for item in distance)
+
+        players_search = self.get_autocomplete_players(leagues_id=leagues)
+
+        cursor.execute("""
+                UPDATE Games
+                SET activate_at = ?, distance = ?, max_rank = ?, hint = ?, leagues  = ?, players = ? WHERE id = ?
+            """, (activate_at, json.dumps(distance), max_rank, hint, json.dumps(leagues, ensure_ascii=False),
+                  json.dumps(players_search, ensure_ascii=False), game_id))
+
+        self.conn.commit()
+
+    def get_player_rank(self, game_id: int, player_id: int) -> int | None:
+        now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        df_game = pd.read_sql_query("SELECT distance FROM Games WHERE id = ? AND activate_at < ?", self.conn, params=(game_id, now))
+
+        if df_game.empty or pd.isna(df_game.loc[0, "distance"]):
+            return None
+
+        try:
+            df_distance = pd.DataFrame(json.loads(df_game.loc[0, "distance"]))
+            result = df_distance.loc[df_distance["id"] == player_id, "rank"]
+            if not result.empty:
+                return int(result.iloc[0])
+        except Exception:
+            return None
+
+        return None
 
     def get_leagues(self):
         leagues = pd.read_sql_query("SELECT ID, NAME FROM LEAGUES ORDER BY NAME", self.conn)
