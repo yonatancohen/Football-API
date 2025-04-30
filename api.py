@@ -14,6 +14,7 @@ from slowapi.errors import RateLimitExceeded
 
 from auth import JWTAuth
 from db import FootballDBHandler
+from game.cache import game_cache, rank_cache
 from utils import calculate_all_distances_fixed, parse_datetime
 
 # todo: support debug?
@@ -66,11 +67,10 @@ class LoginRequest(BaseModel):
 
 
 @app.get("/api/game/")
+@game_cache()
 async def get_customer_game(game_id: Optional[int] = None):
     try:
-        # todo: get game from db/cache
-        db_handler = FootballDBHandler()
-        game = db_handler.get_customer_game(game_id)
+        game = FootballDBHandler().get_customer_game(game_id)
         if game:
             return {
                 "id": game["id"],
@@ -86,8 +86,10 @@ async def get_customer_game(game_id: Optional[int] = None):
 
 @app.post("/api/check-rank")
 @limiter.limit("5/second")
+@rank_cache()
 async def check_response(request: Request, body: GameRequest):
     try:
+        print('check')
         if body.game_id and body.player_id:
             # todo: get game from db/cache
             db_handler = FootballDBHandler()
