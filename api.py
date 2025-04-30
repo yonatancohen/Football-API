@@ -14,7 +14,7 @@ from slowapi.errors import RateLimitExceeded
 
 from auth import JWTAuth
 from db import FootballDBHandler
-from game.cache import game_cache, rank_cache
+from game.cache import GameCacheService
 from utils import calculate_all_distances_fixed, parse_datetime
 
 # todo: support debug?
@@ -40,6 +40,8 @@ auth = JWTAuth(
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+game_service = GameCacheService(FootballDBHandler())
 
 
 class CreateGameRequest(BaseModel):
@@ -67,10 +69,9 @@ class LoginRequest(BaseModel):
 
 
 @app.get("/api/game/")
-@game_cache()
 async def get_customer_game(game_id: Optional[int] = None):
     try:
-        game = FootballDBHandler().get_customer_game(game_id)
+        game = game_service.get_game(game_id)
         if game:
             return {
                 "id": game["id"],
@@ -86,14 +87,10 @@ async def get_customer_game(game_id: Optional[int] = None):
 
 @app.post("/api/check-rank")
 @limiter.limit("5/second")
-@rank_cache()
 async def check_response(request: Request, body: GameRequest):
     try:
-        print('check')
         if body.game_id and body.player_id:
-            # todo: get game from db/cache
-            db_handler = FootballDBHandler()
-            rank = db_handler.get_player_rank(body.game_id, body.player_id)
+            rank = game_service.get_rank(body.game_id, body.player_id)
             if rank:
                 return rank
 
@@ -183,8 +180,8 @@ async def create_game(request: CreateGameRequest, user: str = Depends(auth)):
             results = calculate_all_distances_fixed(request.player_id, request.leagues)
 
             db_handler = FootballDBHandler()
-            db_handler.create_game(activate_at=parse_datetime(request.activate_at), distance=results, hint=request.hint,
-                                   leagues=request.leagues)
+            game_id = db_handler.create_game(activate_at=parse_datetime(request.activate_at), distance=results, hint=request.hint,
+                                             leagues=request.leagues)
 
             return Response(status_code=status.HTTP_200_OK)
 
@@ -209,12 +206,14 @@ async def get_game(game_id: int, user: str = Depends(auth)):
 @app.put("/api/admin/games/{game_id}")
 async def update_admin_game(game_id: int, request: CreateGameRequest, user: str = Depends(auth)):
     try:
-        # Calculate player
         results = calculate_all_distances_fixed(request.player_id, request.leagues)
 
         db_handler = FootballDBHandler()
         db_handler.update_game(game_id=game_id, activate_at=parse_datetime(request.activate_at), distance=results, hint=request.hint,
                                leagues=request.leagues)
+
+        game_service.revoke_game(game_id=game_id)
+        game_service.revoke_ranks_for_game(game_id=game_id)
 
         return Response(status_code=status.HTTP_200_OK)
     except Exception as e:
