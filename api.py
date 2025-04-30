@@ -1,7 +1,9 @@
+from fastapi.security import OAuth2PasswordRequestForm
+
 import json
 from typing import Optional, List
 
-from fastapi import FastAPI, HTTPException, Response, Request
+from fastapi import FastAPI, HTTPException, Response, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from starlette import status
@@ -10,6 +12,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
+from auth import JWTAuth
 from db import FootballDBHandler
 from utils import calculate_all_distances_fixed, parse_datetime
 
@@ -20,8 +23,17 @@ app = FastAPI(debug=True)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:4200"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+auth = JWTAuth(
+    secret_key="your-secret-key",
+    algorithm="HS256",
+    expires_minutes=30,
+    username="a",
+    password="a"
 )
 
 limiter = Limiter(key_func=get_remote_address)
@@ -46,6 +58,11 @@ class PlayerUpdateRequest(BaseModel):
     last_name_he: str
     display_name_he: str
     nationality_id: int
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
 
 
 @app.get("/api/game/")
@@ -93,8 +110,21 @@ async def get_players_by_leagues(leagues_id: Optional[str]):
 
 
 ### Admin URLS ###
+@app.post("/api/admin/token")
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    print("SDF")
+    print(form_data)
+    if not auth.authenticate_user(form_data.username, form_data.password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+        )
+    access_token = auth.create_access_token({"sub": form_data.username})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
 @app.get("/api/admin/leagues")
-async def get_leagues():
+async def get_leagues(user: str = Depends(auth)):
     try:
         return FootballDBHandler().get_leagues()
     except Exception as e:
