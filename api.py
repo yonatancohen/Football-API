@@ -132,7 +132,7 @@ async def get_leagues(user: str = Depends(auth)):
 
 
 @app.get("/api/admin/countries")
-async def get_countries():
+async def get_countries(user: str = Depends(auth)):
     try:
         return FootballDBHandler().get_countries()
     except Exception as e:
@@ -140,7 +140,7 @@ async def get_countries():
 
 
 @app.get("/api/admin/players")
-async def search_players(query: str):
+async def search_players(query: str, user: str = Depends(auth)):
     try:
         return FootballDBHandler().get_autocomplete_players(player_name=query)
     except Exception as e:
@@ -148,7 +148,7 @@ async def search_players(query: str):
 
 
 @app.get("/api/admin/players/{player_id}")
-async def get_player(player_id: int):
+async def get_player(player_id: int, user: str = Depends(auth)):
     try:
         return FootballDBHandler().get_player(player_id)
     except Exception as e:
@@ -156,7 +156,7 @@ async def get_player(player_id: int):
 
 
 @app.post("/api/admin/players/{player_id}")
-async def get_player(player_id: int, request: PlayerUpdateRequest):
+async def get_player(player_id: int, request: PlayerUpdateRequest, user: str = Depends(auth)):
     try:
         return FootballDBHandler().update_player(player_id, request.first_name_he, request.last_name_he, request.display_name_he,
                                                  request.nationality_id)
@@ -165,7 +165,7 @@ async def get_player(player_id: int, request: PlayerUpdateRequest):
 
 
 @app.get("/api/admin/games/search")
-async def search_game(game_date: Optional[str] = None, player_name: Optional[str] = None):
+async def search_game(game_date: Optional[str] = None, player_name: Optional[str] = None, user: str = Depends(auth)):
     try:
         db_handler = FootballDBHandler()
         return db_handler.search_game(game_date, player_name)
@@ -174,7 +174,7 @@ async def search_game(game_date: Optional[str] = None, player_name: Optional[str
 
 
 @app.post("/api/admin/games")
-async def create_game(request: CreateGameRequest):
+async def create_game(request: CreateGameRequest, user: str = Depends(auth)):
     try:
         if request.player_id:
             # Calculate player
@@ -192,7 +192,7 @@ async def create_game(request: CreateGameRequest):
 
 
 @app.get("/api/admin/games/{game_id}")
-async def get_game(game_id: int):
+async def get_game(game_id: int, user: str = Depends(auth)):
     try:
         db_handler = FootballDBHandler()
         result = db_handler.get_game(game_id)
@@ -205,7 +205,7 @@ async def get_game(game_id: int):
 
 
 @app.put("/api/admin/games/{game_id}")
-async def update_admin_game(game_id: int, request: CreateGameRequest):
+async def update_admin_game(game_id: int, request: CreateGameRequest, user: str = Depends(auth)):
     try:
         # Calculate player
         results = calculate_all_distances_fixed(request.player_id, request.leagues)
