@@ -30,11 +30,13 @@ class GameCacheService:
             return result
 
         if now < self.latest_cache["expires"] and self.latest_cache["data"] is not None:
+            print('from cache')
             return self.latest_cache["data"]
 
         result = self.db.get_customer_game(None)
         self.latest_cache["data"] = result
         self.latest_cache["expires"] = self._next_interval(now)
+        print('NOT CACHE')
         return result
 
     def revoke_game(self, game_id: int):
@@ -66,6 +68,13 @@ class GameCacheService:
         keys_to_remove = [key for key in self.rank_cache if key[0] == game_id]
         for key in keys_to_remove:
             self.rank_cache.pop(key, None)
+
+        self.revoke_latest_game(game_id)
+
+    def revoke_latest_game(self, game_id: int):
+        cached = self.latest_cache.get("data")
+        if cached and isinstance(cached, dict) and cached.get("id") == game_id:
+            self.latest_cache = {"expires": datetime.min, "data": None}
 
     def clear_rank_cache(self):
         self.rank_cache.clear()

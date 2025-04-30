@@ -111,8 +111,6 @@ async def get_players_by_leagues(leagues_id: Optional[str]):
 ### Admin URLS ###
 @app.post("/api/admin/token")
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    print("SDF")
-    print(form_data)
     if not auth.authenticate_user(form_data.username, form_data.password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -180,8 +178,8 @@ async def create_game(request: CreateGameRequest, user: str = Depends(auth)):
             results = calculate_all_distances_fixed(request.player_id, request.leagues)
 
             db_handler = FootballDBHandler()
-            game_id = db_handler.create_game(activate_at=parse_datetime(request.activate_at), distance=results, hint=request.hint,
-                                             leagues=request.leagues)
+            db_handler.create_game(activate_at=parse_datetime(request.activate_at), distance=results, hint=request.hint,
+                                   leagues=request.leagues)
 
             return Response(status_code=status.HTTP_200_OK)
 

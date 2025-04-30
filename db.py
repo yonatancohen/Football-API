@@ -395,11 +395,8 @@ class FootballDBHandler:
             VALUES (?, ?, ?, ?, ?, ?)
             """, (activate_at, json.dumps(distance), max_rank, hint, json.dumps(leagues, ensure_ascii=False),
                   json.dumps(players_search, ensure_ascii=False)))
-        game_id = cursor.lastrowid
 
         self.conn.commit()
-
-        return game_id
 
     def update_game(self, game_id: int, activate_at, distance, hint: str, leagues):
         cursor = self.conn.cursor()
