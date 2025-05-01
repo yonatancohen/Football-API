@@ -19,21 +19,8 @@ from utils import calculate_all_distances_fixed, parse_datetime
 
 app = FastAPI()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-auth = JWTAuth(
-    secret_key="sport5-jwt-sECrEt!",
-    algorithm="HS256",
-    expires_minutes=30,
-    username="a",
-    password="a"
-)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"] )
+auth = JWTAuth(secret_key="sport5-jwt-sECrEt!", algorithm="HS256", expires_minutes=30, username="sport5admin", password="Sport5Admin2025!")
 
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
