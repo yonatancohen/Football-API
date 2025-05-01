@@ -1,0 +1,11 @@
+fastapi
+pydantic
+starlette
+slowapi
+jwt
+pandas
+requests
+openai
+gunicorn
+uvicorn[standard]
+python-multipart
