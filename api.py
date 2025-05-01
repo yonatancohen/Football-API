@@ -30,7 +30,7 @@ app.add_middleware(
 )
 
 auth = JWTAuth(
-    secret_key="your-secret-key",
+    secret_key="sport5-jwt-sECrEt!",
     algorithm="HS256",
     expires_minutes=30,
     username="a",
@@ -111,13 +111,16 @@ async def get_players_by_leagues(leagues_id: Optional[str]):
 ### Admin URLS ###
 @app.post("/api/admin/token")
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    if not auth.authenticate_user(form_data.username, form_data.password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-        )
-    access_token = auth.create_access_token({"sub": form_data.username})
-    return {"access_token": access_token, "token_type": "bearer"}
+    try:
+        if not auth.authenticate_user(form_data.username, form_data.password):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect username or password",
+            )
+        access_token = auth.create_access_token({"sub": form_data.username})
+        return {"access_token": access_token, "token_type": "bearer"}
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 @app.get("/api/admin/leagues")

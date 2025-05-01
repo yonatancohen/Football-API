@@ -5,7 +5,7 @@ import math
 
 from db import FootballDBHandler
 
-OPEN_API_KEY = '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'
+OPEN_API_KEY = ''
 
 
 def translate_full_name_via_gpt(first_name, last_name, team_name="", shirt_number=""):
@@ -74,5 +74,3 @@ def translate_db():
 
         print(f"✅ {display} → {display_he}/{first_he} {last_he}")
         time.sleep(.7)
-
-

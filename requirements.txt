@@ -3,6 +3,7 @@ pydantic
 starlette
 slowapi
 jwt
+PyJWT
 pandas
 requests
 openai

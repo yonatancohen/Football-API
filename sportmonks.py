@@ -1,9 +1,10 @@
 import requests
 import time
 
+
 class SportMonksAPIClient:
     def __init__(self, base_url="https://api.sportmonks.com/v3/football/"):
-        self.api_token = "iv5k1aO9nQc2tFeFZ4hNTiLUHgk3y5y4cVxmgoLqAv0JKspGVuxkKPnSpvEm"
+        self.api_token = ""
         self.base_url = base_url
 
     def _get(self, endpoint, params=None):
