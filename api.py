@@ -12,15 +12,13 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
-from auth import JWTAuth
-from db import FootballDBHandler
+from game.db import FootballDBHandler
+from game.auth import JWTAuth
 from game.cache import GameCacheService
 from utils import calculate_all_distances_fixed, parse_datetime
 
-# todo: support debug?
-app = FastAPI(debug=True)
+app = FastAPI()
 
-# configure CORS so Angular (localhost:4200) can talk
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

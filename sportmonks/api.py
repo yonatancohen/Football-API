@@ -1,6 +1,8 @@
 import requests
 import time
 
+from game.db import FootballDBHandler
+
 
 class SportMonksAPIClient:
     def __init__(self, base_url="https://api.sportmonks.com/v3/football/"):
@@ -81,3 +83,16 @@ class SportMonksAPIClient:
         return self._get(f"players/{player_id}", {
             "include": "teams;transfers;statistics;country;nationality;position;transfers.toteam;transfers.toteam.country;transfers.fromteam;transfers.fromteam.country;teams.team",
         })
+
+
+def get_api_data():
+    api_client = SportMonksAPIClient()
+
+    db_handler = FootballDBHandler()
+    db_handler.populate_database(api_client, 372)  # ליגת העל
+    db_handler.populate_database(api_client, 375)  # ליגה לאומית
+    db_handler.populate_database(api_client, 564)  # La Liga
+    db_handler.populate_database(api_client, 8)  # Premier League
+    db_handler.populate_database(api_client, 82)  # Bundesliga
+    db_handler.populate_database(api_client, 301)  # Ligue 1
+    db_handler.populate_database(api_client, 384)  # Serie A

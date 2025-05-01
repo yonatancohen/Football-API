@@ -3,7 +3,7 @@ import openai
 import re
 import math
 
-from db import FootballDBHandler
+from game.db import FootballDBHandler
 
 OPEN_API_KEY = ''
 
