@@ -9,3 +9,6 @@ __pycache__/
 .elasticbeanstalk/*
 !.elasticbeanstalk/*.cfg.yml
 !.elasticbeanstalk/*.global.yml
+
+*.db
+football_data.db
