@@ -7,23 +7,6 @@ from fastapi.security import OAuth2PasswordBearer
 
 
 class JWTAuth:
-    """
-    JWT Bearer auth dependency class.
-    Usage:
-        auth = JWTAuth(
-            secret_key="…", algorithm="HS256", expires_minutes=30,
-            username="sport5admin", password="GuessPlayer2025!"
-        )
-
-        @app.post("/token")
-        def login(form_data: OAuth2PasswordRequestForm = Depends()):
-            … use auth.authenticate_user(…) and auth.create_access_token(…)
-
-        @app.get("/protected")
-        def protected(user: str = Depends(auth)):
-            …
-    """
-
     def __init__(
             self,
             secret_key: str,

@@ -15,22 +15,27 @@ class GameCacheService:
             minutes_to_next = 5
         return now + timedelta(minutes=minutes_to_next, seconds=-now.second, microseconds=-now.microsecond)
 
-    def get_game(self, game_id: Optional[int] = None):
+    def get_game_by_row_number(self, game_number: Optional[int] = None):
         now = datetime.now()
 
-        if game_id is not None:
-            entry = self.by_id_cache.get(game_id)
+        if game_number is not None:
+            entry = self.by_id_cache.get(game_number)
             if entry and now < entry["expires"]:
+                print('CACHED ANSWER! (game)')
+
                 return entry["data"]
-            result = self.db.get_customer_game(game_id)
-            self.by_id_cache[game_id] = {
-                "data": result,
-                "expires": now + timedelta(days=1)
-            }
-            return result
+            result = self.db.get_customer_game(game_number)
+
+            if result:
+                self.by_id_cache[game_number] = {
+                    "data": result,
+                    "expires": now + timedelta(days=1)
+                }
+                print('NOT CACHE (game)')
+                return result
 
         if now < self.latest_cache["expires"] and self.latest_cache["data"] is not None:
-            print('from cache')
+            print('CACHED ANSWER!')
             return self.latest_cache["data"]
 
         result = self.db.get_customer_game(None)
@@ -46,14 +51,15 @@ class GameCacheService:
         self.by_id_cache.clear()
         self.latest_cache = {"expires": datetime.min, "data": None}
 
-    def get_rank(self, game_id: int, player_id: int):
+    def get_rank(self, game_number: int, player_id: int):
         now = datetime.now()
-        key = (game_id, player_id)
+        key = (game_number, player_id)
         entry = self.rank_cache.get(key)
+
         if entry and now < entry["expires"]:
             return entry["data"]
 
-        rank = self.db.get_player_rank(game_id, player_id)
+        rank = self.db.get_player_rank(game_number, player_id)
         self.rank_cache[key] = {
             "data": rank,
             "expires": now + timedelta(hours=1)

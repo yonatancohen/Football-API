@@ -11,7 +11,7 @@ class CreateGameRequest(BaseModel):
 
 
 class GameRequest(BaseModel):
-    game_id: int
+    game_number: int
     player_id: int
 
 

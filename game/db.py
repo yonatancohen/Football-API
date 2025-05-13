@@ -37,6 +37,21 @@ class FootballDBHandler:
         # Mark as initialized to prevent re-creating tables
         type(self)._initialized = True
 
+    def __update_games_number(self):
+        # Update game numbers for future games
+        cursor = self.conn.cursor()
+        cursor.execute("""
+                    WITH updated_games AS (
+                        SELECT id, 
+                               ROW_NUMBER() OVER (ORDER BY activate_at) AS new_game_number
+                        FROM Games
+                    )
+                    UPDATE Games
+                    SET game_number = (SELECT new_game_number FROM updated_games WHERE updated_games.id = Games.id)
+                    WHERE activate_at > ?;
+                """, (datetime.now().date(),))
+        self.conn.commit()
+
     def create_tables(self):
         cursor = self.conn.cursor()
 
@@ -135,6 +150,7 @@ class FootballDBHandler:
                 hint        TEXT
                 leagues     JSON
                 players     JSON
+                game_number INTEGER
             );
         ''')
 
@@ -330,44 +346,64 @@ class FootballDBHandler:
             cursor.execute(sql, params)
             self.conn.commit()
 
-    def get_customer_game(self, game_id: Optional[int]):
-        if game_id:
+    def get_customer_game(self, game_number: Optional[int]):
+        now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+        if game_number:
             game = pd.read_sql_query(
-                f"SELECT id, created_at, activate_at, distance, max_rank, hint, players FROM Games WHERE id = {game_id}", self.conn)
+                "SELECT g.id, g.created_at, g.activate_at, g.distance, g.max_rank, g.hint, g.players, g.game_number, "
+                "(SELECT MAX(game_number) FROM Games WHERE activate_at <= ?) AS max_game_number "
+                "FROM Games g WHERE g.game_number = ? and g.activate_at <= ? ORDER BY g.activate_at DESC LIMIT 1", self.conn,
+                params=[now, game_number, now])
         else:
-            now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
             game = pd.read_sql_query(
-                f"SELECT id, created_at, activate_at, distance, max_rank, hint, players FROM Games WHERE activate_at <= '{now}' "
-                "ORDER BY activate_at DESC LIMIT 1", self.conn)
+                "SELECT id, created_at, activate_at, distance, max_rank, hint, players, game_number, game_number as max_game_number "
+                "FROM Games WHERE activate_at <= ? "
+                "ORDER BY activate_at DESC LIMIT 1", self.conn, params=[now])
+
         if not game.empty:
             return game.iloc[0].to_dict()
 
         return None
 
-    def search_game(self, date: Optional[str], player_name: Optional[str]):
+    def search_game(self, date: Optional[str], player_name: Optional[str], game_number: Optional[str]):
         params = []
 
-        query = "SELECT g.id, g.activate_at, g.hint, p.display_name_he as player_name " \
+        query = "SELECT g.id, g.activate_at, g.hint, p.display_name_he as player_name, g.game_number " \
                 "FROM Games AS g INNER JOIN Players AS p ON p.id = json_extract(g.distance, '$[0].id') "
 
-        if date:
-            query += f"WHERE date(g.activate_at) = ? "
-            params.append(date)
+        if date or game_number or player_name:
+            query += "WHERE "
+            if date:
+                query += f"date(g.activate_at) = ? "
+                params.append(date)
 
-        if player_name:
-            query += "AND (p.display_name_he LIKE ? OR p.first_name_he LIKE ? OR p.last_name_he LIKE ?)"
-            params.append(f"%{player_name}%")
-            params.append(f"%{player_name}%")
-            params.append(f"%{player_name}%")
+            if game_number:
+                if date:
+                    query += "AND "
+                query += f"g.game_number = ? "
+                params.append(game_number)
+
+            if player_name:
+                if date or game_number:
+                    query += "AND "
+
+                query += "AND (p.display_name_he LIKE ? OR p.first_name_he LIKE ? OR p.last_name_he LIKE ?)"
+                params.append(f"%{player_name}%")
+                params.append(f"%{player_name}%")
+                params.append(f"%{player_name}%")
+
+        query += " ORDER BY activate_at DESC"
 
         games = pd.read_sql_query(query, self.conn, params=params)
         return games.to_dict(orient="records")
 
-    def get_game(self, game_id: int):
+    def get_game(self, game_id: Optional[int]):
         game = pd.read_sql_query(
             "SELECT g.id, g.activate_at, g.hint, g.leagues, p.display_name_he as player_name, p.id as player_id FROM Games as g "
             "INNER JOIN Players AS p ON p.id = json_extract(g.distance, '$[0].id') "
             "WHERE g.id = ?", self.conn, params=[game_id])
+
         if not game.empty:
             game_details = game.iloc[0].to_dict()
 
@@ -395,8 +431,9 @@ class FootballDBHandler:
             VALUES (?, ?, ?, ?, ?, ?)
             """, (activate_at, json.dumps(distance), max_rank, hint, json.dumps(leagues, ensure_ascii=False),
                   json.dumps(players_search, ensure_ascii=False)))
-
         self.conn.commit()
+
+        self.__update_games_number()
 
     def update_game(self, game_id: int, activate_at, distance, hint: str, leagues):
         cursor = self.conn.cursor()
@@ -408,15 +445,20 @@ class FootballDBHandler:
         cursor.execute("""
                 UPDATE Games
                 SET activate_at = ?, distance = ?, max_rank = ?, hint = ?, leagues  = ?, players = ? WHERE id = ?
-            """, (activate_at, json.dumps(distance), max_rank, hint, json.dumps(leagues, ensure_ascii=False),
+                RETURNING game_number""", (activate_at, json.dumps(distance), max_rank, hint, json.dumps(leagues, ensure_ascii=False),
                   json.dumps(players_search, ensure_ascii=False), game_id))
-
+        old_game_number = cursor.fetchone()[0]
+        print(old_game_number)
         self.conn.commit()
 
-    def get_player_rank(self, game_id: int, player_id: int) -> int | None:
-        now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-        df_game = pd.read_sql_query("SELECT distance FROM Games WHERE id = ? AND activate_at < ?", self.conn, params=(game_id, now))
+        self.__update_games_number()
 
+        return old_game_number
+
+    def get_player_rank(self, game_number: int, player_id: int) -> int | None:
+        now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        df_game = pd.read_sql_query("SELECT distance FROM Games WHERE game_number = ? AND activate_at < ?", self.conn,
+                                    params=(game_number, now))
         if df_game.empty or pd.isna(df_game.loc[0, "distance"]):
             return None
 
@@ -437,6 +479,28 @@ class FootballDBHandler:
     def get_countries(self):
         countries = pd.read_sql_query("SELECT ID, NAME FROM COUNTRIES ORDER BY NAME", self.conn)
         return countries.to_dict(orient="records")
+
+    def get_countdown(self):
+        now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+        next_game = pd.read_sql_query(
+                """
+            select activate_at
+            from Games g
+            where game_number > 
+            (select game_number
+            from Games
+            where activate_at < ?
+            order by game_number DESC
+            limit 1)
+            order by game_number asc
+            limit 1
+            """, self.conn, params=[now])
+
+        if not next_game.empty:
+            return next_game.iloc[0].to_dict()['activate_at']
+
+        return None
 
     def close(self):
         if hasattr(self, 'conn') and self.conn:

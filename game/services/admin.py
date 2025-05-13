@@ -66,10 +66,11 @@ async def get_player(player_id: int, request: PlayerUpdateRequest, user: str = D
 
 
 @router.get("/games/search")
-async def search_game(game_date: Optional[str] = None, player_name: Optional[str] = None, user: str = Depends(auth)):
+async def search_game(game_date: Optional[str] = None, player_name: Optional[str] = None, game_number: Optional[str] = None,
+                      user: str = Depends(auth)):
     try:
         db_handler = FootballDBHandler()
-        return db_handler.search_game(game_date, player_name)
+        return db_handler.search_game(game_date, player_name, game_number)
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
@@ -106,16 +107,18 @@ async def get_game(game_id: int, user: str = Depends(auth)):
 
 
 @router.put("/games/{game_id}")
-async def update_admin_game(game_id: int, request: CreateGameRequest, user: str = Depends(auth)):
+async def update_game(game_id: int, request: CreateGameRequest, user: str = Depends(auth)):
     try:
         results = calculate_all_distances_fixed(request.player_id, request.leagues)
 
         db_handler = FootballDBHandler()
-        db_handler.update_game(game_id=game_id, activate_at=parse_datetime(request.activate_at), distance=results, hint=request.hint,
-                               leagues=request.leagues)
+        old_game_number = \
+            db_handler.update_game(game_id=game_id, activate_at=parse_datetime(request.activate_at), distance=results, hint=request.hint,
+                                   leagues=request.leagues)
 
-        game_service.revoke_game(game_id=game_id)
-        game_service.revoke_ranks_for_game(game_id=game_id)
+        print("Revoking game number: ", old_game_number)
+        game_service.revoke_game(game_id=old_game_number)
+        game_service.revoke_ranks_for_game(game_id=old_game_number)
 
         return Response(status_code=status.HTTP_200_OK)
     except Exception as e:
