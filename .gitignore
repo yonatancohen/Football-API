@@ -11,4 +11,6 @@ __pycache__/
 !.elasticbeanstalk/*.global.yml
 
 *.db
+*.db-shm
+*.db-wal
 football_data.db
