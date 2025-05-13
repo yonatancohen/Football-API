@@ -17,5 +17,5 @@ RUN pip install -r requirements.txt
 COPY . /football-api/
 
 # Command to run the app using uvicorn
-CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "main:app", "-b", "0.0.0.0:80", "--workers", "4"]
+CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "main:app", "-b", "0.0.0.0:80", "--workers", "4", "--timeout", "60"]
 
