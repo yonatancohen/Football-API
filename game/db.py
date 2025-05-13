@@ -27,6 +27,7 @@ class FootballDBHandler:
         # Open connection once
         self.conn = sqlite3.connect(self.db_filename)
         self.conn.execute("PRAGMA foreign_keys = ON")
+        self.conn.execute("PRAGMA journal_mode = WAL")
 
         # First-time setup
         self.create_tables()
