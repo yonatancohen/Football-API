@@ -1,11 +1,12 @@
-from datetime import datetime
-from typing import Optional
-from common import DB_FILE_NAME, DEFAULT_DB_TYPE, PG_HOST, PG_USER, PG_PASSWORD, PG_DATABASE
-
+import os
 import json
 import sqlite3
 import pandas as pd
 import atexit
+
+from datetime import datetime
+from typing import Optional
+from common import DB_FILE_NAME, DEFAULT_DB_TYPE
 from sqlalchemy import create_engine
 
 from psycopg2.extras import execute_batch
@@ -34,7 +35,10 @@ class FootballDBHandler:
             self.conn.execute("PRAGMA journal_mode = WAL")
             self.param_key = '?'
         elif self.db_type == "postgresql":
-            self.engine = create_engine(f"postgresql://{PG_USER}{(':' + PG_PASSWORD) if PG_PASSWORD else ''}@{PG_HOST}:5432/{PG_DATABASE}")
+            DATABASE_URL = os.getenv("DATABASE_URL")
+            print('DATABASE_URL', DATABASE_URL)
+
+            self.engine = create_engine(DATABASE_URL)
             self.conn = self.engine.raw_connection()
             self.param_key = '%s'
         else:
@@ -673,9 +677,9 @@ class FootballDBHandler:
         """
 
         pg_conn = psycopg2.connect(
-            dbname=PG_DATABASE,
-            user=PG_USER,
-            host=PG_HOST,
+            dbname='guess_game_db',
+            user='yonicohen',
+            host='localhost',
             port="5432"
         )
 

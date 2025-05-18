@@ -1,0 +1,31 @@
+version: '3.9'
+
+services:
+  db:
+    image: postgres:15
+    container_name: football_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: guess_game_user
+      POSTGRES_PASSWORD: guess_game_AY_password#
+      POSTGRES_DB: guess_game_db
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  api:
+    build: .
+    container_name: football_api
+    restart: always
+    depends_on:
+      - db
+    ports:
+      - "8000:80"
+    env_file:
+      - .env
+    volumes:
+      - .:/football-api
+
+volumes:
+  pgdata:
