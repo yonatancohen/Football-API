@@ -48,6 +48,15 @@ async def search_players(query: str, user: str = Depends(auth)):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
+@router.get("/players-by-leagues")
+async def get_players_by_leagues(leagues_id: Optional[str]):
+    try:
+        leagues_id = leagues_id.split(',')
+        return FootballDBHandler().get_autocomplete_players(leagues_id)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
 @router.get("/players/{player_id}")
 async def get_player(player_id: int, user: str = Depends(auth)):
     try:

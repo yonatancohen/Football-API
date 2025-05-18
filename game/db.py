@@ -1,33 +1,44 @@
 from datetime import datetime
 from typing import Optional
+from common import DB_FILE_NAME, DEFAULT_DB_TYPE, PG_HOST, PG_USER, PG_PASSWORD, PG_DATABASE
 
 import json
 import sqlite3
 import pandas as pd
 import atexit
+from sqlalchemy import create_engine
+
+from psycopg2.extras import execute_batch
+import psycopg2
 
 
 class FootballDBHandler:
     _instance = None
     _initialized = False
 
-    def __new__(cls, db_filename: str = "football_data.db"):
+    def __new__(cls):
         # Singleton: only one instance
         if cls._instance is None:
             cls._instance = super(FootballDBHandler, cls).__new__(cls)
         return cls._instance
 
-    def __init__(self, db_filename: str = "football_data.db"):
+    def __init__(self, db_type: str = DEFAULT_DB_TYPE):
         if self._initialized:
             # Already initialized, skip table creation
             return
 
-        self.db_filename = db_filename
-
-        # Open connection once
-        self.conn = sqlite3.connect(self.db_filename)
-        self.conn.execute("PRAGMA foreign_keys = ON")
-        self.conn.execute("PRAGMA journal_mode = WAL")
+        self.db_type = db_type
+        if self.db_type == "sqlite":
+            self.conn = sqlite3.connect(DB_FILE_NAME)
+            self.conn.execute("PRAGMA foreign_keys = ON")
+            self.conn.execute("PRAGMA journal_mode = WAL")
+            self.param_key = '?'
+        elif self.db_type == "postgresql":
+            self.engine = create_engine(f"postgresql://{PG_USER}{(':' + PG_PASSWORD) if PG_PASSWORD else ''}@{PG_HOST}:5432/{PG_DATABASE}")
+            self.conn = self.engine.raw_connection()
+            self.param_key = '%s'
+        else:
+            raise ValueError("Unsupported database type")
 
         # First-time setup
         self.create_tables()
@@ -38,10 +49,214 @@ class FootballDBHandler:
         # Mark as initialized to prevent re-creating tables
         type(self)._initialized = True
 
+    def create_tables(self):
+        cursor = self.conn.cursor()
+
+        if self.db_type == "sqlite":
+            # Countries
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS Countries (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    image TEXT
+                );
+            ''')
+
+            # Leagues
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS Leagues (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    image TEXT,
+                    sub_type TEXT
+                );
+            ''')
+
+            # Seasons
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS Seasons (
+                    id INTEGER PRIMARY KEY,
+                    league_id INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    FOREIGN KEY (league_id) REFERENCES Leagues(id)
+                );
+            ''')
+
+            # Teams
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS Teams (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    image TEXT,
+                    country_id INTEGER,
+                    FOREIGN KEY (country_id) REFERENCES Countries(id)
+                );
+            ''')
+
+            # Players
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS Players (
+                    id INTEGER PRIMARY KEY,
+                    first_name TEXT,
+                    last_name TEXT,
+                    display_name TEXT,
+                    first_name_he TEXT,
+                    last_name_he TEXT,
+                    display_name_he TEXT,
+                    image TEXT,
+                    date_of_birth TEXT,
+                    height INTEGER,
+                    weight INTEGER,
+                    nationality_id INTEGER,
+                    FOREIGN KEY (nationality_id) REFERENCES Countries(id)
+                );
+            ''')
+
+            # Positions
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS Positions (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL
+                );
+            ''')
+
+            # Player-Team-Season link
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS PlayerTeamSeason (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    player_id INTEGER NOT NULL,
+                    team_id INTEGER NOT NULL,
+                    season_id INTEGER NOT NULL,
+                    position_id INTEGER,
+                    shirt_number INTEGER,
+                    is_captain BOOLEAN,
+                    FOREIGN KEY (player_id) REFERENCES Players(id),
+                    FOREIGN KEY (team_id) REFERENCES Teams(id),
+                    FOREIGN KEY (season_id) REFERENCES Seasons(id),
+                    FOREIGN KEY (position_id) REFERENCES Positions(id)
+                );
+            ''')
+
+            # Games
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS Games (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    activate_at  DATETIME,
+                    distance     JSON,
+                    max_rank    INTEGER
+                    hint        TEXT
+                    leagues     JSON
+                    players     JSON
+                    game_number INTEGER
+                );
+            ''')
+
+            self.conn.commit()
+        elif self.db_type == "postgresql":
+            # Countries
+            cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS Countries (
+                            id BIGSERIAL PRIMARY KEY,
+                            name TEXT NOT NULL,
+                            image TEXT
+                        );
+                    ''')
+
+            # Leagues
+            cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS Leagues (
+                            id BIGSERIAL PRIMARY KEY,
+                            name TEXT NOT NULL,
+                            image TEXT,
+                            sub_type TEXT
+                        );
+                    ''')
+
+            # Seasons
+            cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS Seasons (
+                            id BIGSERIAL PRIMARY KEY,
+                            league_id BIGINT NOT NULL,
+                            name TEXT NOT NULL,
+                            FOREIGN KEY (league_id) REFERENCES Leagues(id)
+                        );
+                    ''')
+
+            # Teams
+            cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS Teams (
+                            id BIGSERIAL PRIMARY KEY,
+                            name TEXT NOT NULL,
+                            image TEXT,
+                            country_id BIGINT,
+                            FOREIGN KEY (country_id) REFERENCES Countries(id)
+                        );
+                    ''')
+
+            # Players
+            cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS Players (
+                            id BIGSERIAL PRIMARY KEY,
+                            first_name TEXT,
+                            last_name TEXT,
+                            display_name TEXT,
+                            first_name_he TEXT,
+                            last_name_he TEXT,
+                            display_name_he TEXT,
+                            image TEXT,
+                            date_of_birth DATE,
+                            height INTEGER,
+                            weight INTEGER,
+                            nationality_id BIGINT,
+                            FOREIGN KEY (nationality_id) REFERENCES Countries(id)
+                        );
+                    ''')
+
+            # Positions
+            cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS Positions (
+                            id BIGSERIAL PRIMARY KEY,
+                            name TEXT NOT NULL
+                        );
+                    ''')
+
+            # Player-Team-Season link
+            cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS PlayerTeamSeason (
+                            id BIGSERIAL PRIMARY KEY,
+                            player_id BIGINT NOT NULL,
+                            team_id BIGINT NOT NULL,
+                            season_id BIGINT NOT NULL,
+                            position_id BIGINT,
+                            shirt_number INTEGER,
+                            is_captain BOOLEAN,
+                            FOREIGN KEY (player_id) REFERENCES Players(id),
+                            FOREIGN KEY (team_id) REFERENCES Teams(id),
+                            FOREIGN KEY (season_id) REFERENCES Seasons(id),
+                            FOREIGN KEY (position_id) REFERENCES Positions(id)
+                        );
+                    ''')
+
+            # Games
+            cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS Games (
+                            id           BIGSERIAL PRIMARY KEY,
+                            created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            activate_at  TIMESTAMP,
+                            distance     JSONB,
+                            max_rank     INTEGER,
+                            hint         TEXT,
+                            leagues      JSONB,
+                            players      JSONB,
+                            game_number  INTEGER
+                        );
+                    ''')
+
     def __update_games_number(self):
         # Update game numbers for future games
         cursor = self.conn.cursor()
-        cursor.execute("""
+        cursor.execute(f"""
                     WITH updated_games AS (
                         SELECT id, 
                                ROW_NUMBER() OVER (ORDER BY activate_at) AS new_game_number
@@ -49,112 +264,8 @@ class FootballDBHandler:
                     )
                     UPDATE Games
                     SET game_number = (SELECT new_game_number FROM updated_games WHERE updated_games.id = Games.id)
-                    WHERE activate_at > ?;
+                    WHERE activate_at > {self.param_key}
                 """, (datetime.now().date(),))
-        self.conn.commit()
-
-    def create_tables(self):
-        cursor = self.conn.cursor()
-
-        # Countries
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS Countries (
-                id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL,
-                image TEXT
-            );
-        ''')
-
-        # Leagues
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS Leagues (
-                id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL,
-                image TEXT,
-                sub_type TEXT
-            );
-        ''')
-
-        # Seasons
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS Seasons (
-                id INTEGER PRIMARY KEY,
-                league_id INTEGER NOT NULL,
-                name TEXT NOT NULL,
-                FOREIGN KEY (league_id) REFERENCES Leagues(id)
-            );
-        ''')
-
-        # Teams
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS Teams (
-                id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL,
-                image TEXT,
-                country_id INTEGER,
-                FOREIGN KEY (country_id) REFERENCES Countries(id)
-            );
-        ''')
-
-        # Players
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS Players (
-                id INTEGER PRIMARY KEY,
-                first_name TEXT,
-                last_name TEXT,
-                display_name TEXT,
-                first_name_he TEXT,
-                last_name_he TEXT,
-                display_name_he TEXT,
-                image TEXT,
-                date_of_birth TEXT,
-                height INTEGER,
-                weight INTEGER,
-                nationality_id INTEGER,
-                FOREIGN KEY (nationality_id) REFERENCES Countries(id)
-            );
-        ''')
-
-        # Positions
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS Positions (
-                id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL
-            );
-        ''')
-
-        # Player-Team-Season link
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS PlayerTeamSeason (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                player_id INTEGER NOT NULL,
-                team_id INTEGER NOT NULL,
-                season_id INTEGER NOT NULL,
-                position_id INTEGER,
-                shirt_number INTEGER,
-                is_captain BOOLEAN,
-                FOREIGN KEY (player_id) REFERENCES Players(id),
-                FOREIGN KEY (team_id) REFERENCES Teams(id),
-                FOREIGN KEY (season_id) REFERENCES Seasons(id),
-                FOREIGN KEY (position_id) REFERENCES Positions(id)
-            );
-        ''')
-
-        # Games
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS Games (
-                id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
-                activate_at  DATETIME,
-                distance     JSON,
-                max_rank    INTEGER
-                hint        TEXT
-                leagues     JSON
-                players     JSON
-                game_number INTEGER
-            );
-        ''')
-
         self.conn.commit()
 
     def populate_database(self, api_client, league_id):
@@ -168,9 +279,9 @@ class FootballDBHandler:
         league_image = league_seasons['image_path']
         sub_type = league_seasons['sub_type']
 
-        cursor.execute("""
+        cursor.execute(f"""
             INSERT OR IGNORE INTO Leagues (id, name, image, sub_type)
-            VALUES (?, ?, ?, ?)
+            VALUES ({self.param_key}, {self.param_key}, {self.param_key}, {self.param_key})
         """, (league_id, league_name, league_image, sub_type))
 
         # --- Iterate over Seasons ---
@@ -181,9 +292,9 @@ class FootballDBHandler:
             print(f"Season {season_name}")
             print("------------------------------")
 
-            cursor.execute("""
+            cursor.execute(f"""
                 INSERT OR IGNORE INTO Seasons (id, league_id, name)
-                VALUES (?, ?, ?)
+                VALUES ({self.param_key}, {self.param_key}, {self.param_key})
             """, (season_id, league_id, season_name))
 
             teams = api_client.get_teams_by_season(season_id)
@@ -197,14 +308,14 @@ class FootballDBHandler:
                 country_name = country['name']
                 country_image = country['image_path']
 
-                cursor.execute("""
+                cursor.execute(f"""
                     INSERT OR IGNORE INTO Countries (id, name, image)
-                    VALUES (?, ?, ?)
+                    VALUES ({self.param_key}, {self.param_key}, {self.param_key})
                 """, (country_id, country_name, country_image))
 
-                cursor.execute("""
+                cursor.execute(f"""
                     INSERT OR IGNORE INTO Teams (id, name, image, country_id)
-                    VALUES (?, ?, ?, ?)
+                    VALUES ({self.param_key}, {self.param_key}, {self.param_key}, {self.param_key})
                 """, (team_id, team_name, team_image, country_id))
 
                 players = api_client.get_players_by_season_team(season_id, team_id)
@@ -229,16 +340,16 @@ class FootballDBHandler:
                             nat_name = nationality['name']
                             nat_image = nationality['image_path']
 
-                            cursor.execute("""
+                            cursor.execute(f"""
                                 INSERT OR IGNORE INTO Countries (id, name, image)
-                                VALUES (?, ?, ?)
+                                VALUES ({self.param_key}, {self.param_key}, {self.param_key})
                             """, (nat_id, nat_name, nat_image))
                         else:
                             nat_id = None
 
-                        cursor.execute("""
+                        cursor.execute(f"""
                             INSERT OR IGNORE INTO Players (id, first_name, last_name, display_name, image, date_of_birth, height, weight, nationality_id)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            VALUES ({self.param_key}, {self.param_key}, {self.param_key}, {self.param_key}, {self.param_key}, {self.param_key}, {self.param_key}, {self.param_key}, {self.param_key})
                         """, (player_id, first_name, last_name, display_name, player_image, dob, height, weight, nat_id))
 
                         position = team_player['position']
@@ -246,9 +357,9 @@ class FootballDBHandler:
                             pos_id = position['id']
                             pos_name = position['name']
 
-                            cursor.execute("""
+                            cursor.execute(f"""
                                 INSERT OR IGNORE INTO Positions (id, name)
-                                VALUES (?, ?)
+                                VALUES ({self.param_key}, {self.param_key})
                             """, (pos_id, pos_name))
                         else:
                             pos_id = None
@@ -260,10 +371,10 @@ class FootballDBHandler:
                             for detail in team_player.get('details', None)
                         )
 
-                        cursor.execute("""
+                        cursor.execute(f"""
                         INSERT INTO PlayerTeamSeason (
                             player_id, team_id, season_id, position_id, shirt_number, is_captain)
-                        VALUES (?, ?, ?, ?, ?, ?)
+                        VALUES ({self.param_key}, {self.param_key}, {self.param_key}, {self.param_key}, {self.param_key}, {self.param_key})
                     """, (player_id, team_id, season_id, pos_id, jersey_number, is_captain))
             print("\n")
 
@@ -293,21 +404,25 @@ class FootballDBHandler:
         return df
 
     def get_autocomplete_players(self, leagues_id=None, player_name=None):
-        query = """
+        if self.db_type == 'sqlite':
+            VALID_Q = f" GLOB '[A-Z]. *' "
+        elif self.db_type == 'postgresql':
+            VALID_Q = f" ~ '^[A-Z].*' "
+
+        query = f"""
                     SELECT DISTINCT(P.id),
-                           CASE WHEN display_name GLOB '[A-Z]. *' THEN first_name_he || ' ' || last_name_he 
+                           CASE WHEN display_name {VALID_Q} THEN first_name_he || ' ' || last_name_he 
                                 ELSE display_name_he END AS name 
-                           --,REPLACE(image, 'https://cdn.sportmonks.com/images/soccer/', '') AS image 
                     FROM Players P
                 """
 
         params = []
         if player_name:
-            query += " WHERE name LIKE ?"
+            query += f" WHERE display_name_he LIKE {self.param_key}"
             params.append(f"%{player_name}%")
 
         if leagues_id:
-            placeholders = ",".join(["?"] * len(leagues_id))
+            placeholders = ",".join([self.param_key] * len(leagues_id))
             query += """
                         INNER JOIN PlayerTeamSeason PS ON PS.player_id = P.id
                         INNER JOIN Seasons S ON S.id = PS.season_id AND S.league_id IN ({})
@@ -318,7 +433,7 @@ class FootballDBHandler:
         return all_players.to_dict(orient="records")
 
     def get_player(self, player_id):
-        query = """SELECT * FROM PLAYERS WHERE ID = ?"""
+        query = f"""SELECT * FROM PLAYERS WHERE ID = {self.param_key}"""
         player = pd.read_sql_query(query, self.conn, params=[player_id])
         return player.iloc[0].to_dict()
 
@@ -326,12 +441,12 @@ class FootballDBHandler:
         cursor = self.conn.cursor()
 
         # Always update these fields
-        fields = ["first_name_he = ?", "last_name_he = ?", "display_name_he = ?"]
+        fields = [f"first_name_he = {self.param_key}", f"last_name_he = {self.param_key}", f"display_name_he = {self.param_key}"]
         params = [first_name_he, last_name_he, display_name_he]
 
         # Only add nationality_id if provided
         if nationality_id is not None:
-            fields.append("nationality_id = ?")
+            fields.append(f"nationality_id = {self.param_key}")
             params.append(nationality_id)
 
             # Add player_id for WHERE clause
@@ -341,7 +456,7 @@ class FootballDBHandler:
             sql = f"""
                 UPDATE Players
                 SET {', '.join(fields)}
-                WHERE id = ?
+                WHERE id = {self.param_key}
             """
 
             cursor.execute(sql, params)
@@ -351,16 +466,22 @@ class FootballDBHandler:
         now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
         if game_number:
-            game = pd.read_sql_query(
-                "SELECT g.id, g.created_at, g.activate_at, g.distance, g.max_rank, g.hint, g.players, g.game_number, "
-                "(SELECT MAX(game_number) FROM Games WHERE activate_at <= ?) AS max_game_number "
-                "FROM Games g WHERE g.game_number = ? and g.activate_at <= ? ORDER BY g.activate_at DESC LIMIT 1", self.conn,
-                params=[now, game_number, now])
+            query = f"""
+                SELECT g.id, g.created_at, g.activate_at, g.distance, g.max_rank, g.hint, g.players, g.game_number,
+                (SELECT MAX(game_number) FROM Games WHERE activate_at <= {self.param_key}) AS max_game_number 
+                FROM Games g WHERE g.game_number = {self.param_key} and g.activate_at <= {self.param_key} ORDER BY g.activate_at DESC LIMIT 1  
+            """
+            game = pd.read_sql_query(query, self.conn, params=[now, game_number, now])
         else:
-            game = pd.read_sql_query(
-                "SELECT id, created_at, activate_at, distance, max_rank, hint, players, game_number, game_number as max_game_number "
-                "FROM Games WHERE activate_at <= ? "
-                "ORDER BY activate_at DESC LIMIT 1", self.conn, params=[now])
+            query = f"""
+                SELECT id, created_at, activate_at, distance, max_rank, hint, players, 
+                       game_number, game_number AS max_game_number
+                FROM Games
+                WHERE activate_at <= {self.param_key}
+                ORDER BY activate_at DESC
+                LIMIT 1
+            """
+            game = pd.read_sql_query(query, self.conn, params=[now])
 
         if not game.empty:
             return game.iloc[0].to_dict()
@@ -370,26 +491,31 @@ class FootballDBHandler:
     def search_game(self, date: Optional[str], player_name: Optional[str], game_number: Optional[str]):
         params = []
 
+        if self.db_type == 'sqlite':
+            JSON_Q = f"json_extract(g.distance, '$[0].id') "
+        elif self.db_type == 'postgresql':
+            JSON_Q = f" (g.distance->0->>'id')::int "
+
         query = "SELECT g.id, g.activate_at, g.hint, p.display_name_he as player_name, g.game_number " \
-                "FROM Games AS g INNER JOIN Players AS p ON p.id = json_extract(g.distance, '$[0].id') "
+                f"FROM Games AS g INNER JOIN Players AS p ON p.id = {JSON_Q} "
 
         if date or game_number or player_name:
             query += "WHERE "
             if date:
-                query += f"date(g.activate_at) = ? "
+                query += f"date(g.activate_at) = {self.param_key} "
                 params.append(date)
 
             if game_number:
                 if date:
                     query += "AND "
-                query += f"g.game_number = ? "
+                query += f"g.game_number = {self.param_key} "
                 params.append(game_number)
 
             if player_name:
                 if date or game_number:
                     query += "AND "
 
-                query += "AND (p.display_name_he LIKE ? OR p.first_name_he LIKE ? OR p.last_name_he LIKE ?)"
+                query += f"AND (p.display_name_he LIKE {self.param_key} OR p.first_name_he LIKE {self.param_key} OR p.last_name_he LIKE {self.param_key})"
                 params.append(f"%{player_name}%")
                 params.append(f"%{player_name}%")
                 params.append(f"%{player_name}%")
@@ -400,17 +526,23 @@ class FootballDBHandler:
         return games.to_dict(orient="records")
 
     def get_game(self, game_id: Optional[int]):
-        game = pd.read_sql_query(
-            "SELECT g.id, g.activate_at, g.hint, g.leagues, p.display_name_he as player_name, p.id as player_id FROM Games as g "
-            "INNER JOIN Players AS p ON p.id = json_extract(g.distance, '$[0].id') "
-            "WHERE g.id = ?", self.conn, params=[game_id])
+        if self.db_type == 'sqlite':
+            JSON_Q = f"json_extract(g.distance, '$[0].id') "
+        elif self.db_type == 'postgresql':
+            JSON_Q = f" (g.distance->0->>'id')::int "
+
+        query = f"""
+            SELECT g.id, g.activate_at, g.hint, g.leagues, p.display_name_he as player_name, p.id as player_id FROM Games as g
+            INNER JOIN Players AS p ON p.id = {JSON_Q} WHERE g.id = {self.param_key}
+        """
+        game = pd.read_sql_query(query, self.conn, params=[game_id])
 
         if not game.empty:
             game_details = game.iloc[0].to_dict()
 
-            leagues = game_details['leagues'].replace('[', '').replace(']', '').split(',')
+            leagues = str(game_details['leagues']).replace('[', '').replace(']', '').split(',')
 
-            placeholders = ",".join(["?"] * len(leagues))
+            placeholders = ",".join([self.param_key] * len(leagues))
             leagues = pd.read_sql_query("SELECT id, name FROM Leagues WHERE ID IN ({})".format(placeholders), self.conn,
                                         params=leagues)
 
@@ -427,9 +559,9 @@ class FootballDBHandler:
 
         players_search = self.get_autocomplete_players(leagues_id=leagues)
 
-        cursor.execute("""
+        cursor.execute(f"""
             INSERT INTO Games (activate_at, distance, max_rank, hint, leagues, players)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES ({self.param_key}, {self.param_key}, {self.param_key}, {self.param_key}, {self.param_key}, {self.param_key})
             """, (activate_at, json.dumps(distance), max_rank, hint, json.dumps(leagues, ensure_ascii=False),
                   json.dumps(players_search, ensure_ascii=False)))
         self.conn.commit()
@@ -443,13 +575,13 @@ class FootballDBHandler:
 
         players_search = self.get_autocomplete_players(leagues_id=leagues)
 
-        cursor.execute("""
-                UPDATE Games
-                SET activate_at = ?, distance = ?, max_rank = ?, hint = ?, leagues  = ?, players = ? WHERE id = ?
-                RETURNING game_number""", (activate_at, json.dumps(distance), max_rank, hint, json.dumps(leagues, ensure_ascii=False),
-                  json.dumps(players_search, ensure_ascii=False), game_id))
+        query = f""" UPDATE Games SET activate_at = {self.param_key}, distance = {self.param_key} , 
+        max_rank = {self.param_key}, hint = {self.param_key}, leagues  = {self.param_key} , 
+        players = {self.param_key} WHERE id = {self.param_key} RETURNING game_number"""
+
+        cursor.execute(query, (activate_at, json.dumps(distance), max_rank, hint, json.dumps(leagues, ensure_ascii=False),
+                               json.dumps(players_search, ensure_ascii=False), game_id))
         old_game_number = cursor.fetchone()[0]
-        print(old_game_number)
         self.conn.commit()
 
         self.__update_games_number()
@@ -458,13 +590,15 @@ class FootballDBHandler:
 
     def get_player_rank(self, game_number: int, player_id: int) -> int | None:
         now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-        df_game = pd.read_sql_query("SELECT distance FROM Games WHERE game_number = ? AND activate_at < ?", self.conn,
-                                    params=(game_number, now))
-        if df_game.empty or pd.isna(df_game.loc[0, "distance"]):
+        query = f"SELECT distance FROM Games WHERE game_number = {self.param_key} AND activate_at < {self.param_key}"
+        df_game = pd.read_sql_query(query, self.conn, params=[game_number, now])
+
+        if df_game.empty:
             return None
 
         try:
-            df_distance = pd.DataFrame(json.loads(df_game.loc[0, "distance"]))
+            raw_df = df_game.loc[0, "distance"] if type(df_game.loc[0, "distance"]) == list else json.loads(df_game.loc[0, "distance"])
+            df_distance = pd.DataFrame(raw_df)
             result = df_distance.loc[df_distance["id"] == player_id, "rank"]
             if not result.empty:
                 return int(result.iloc[0])
@@ -482,24 +616,28 @@ class FootballDBHandler:
         return countries.to_dict(orient="records")
 
     def get_countdown(self):
-        now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        now = datetime.utcnow()
 
         next_game = pd.read_sql_query(
-                """
-            select activate_at
-            from Games g
-            where game_number > 
-            (select game_number
-            from Games
-            where activate_at < ?
-            order by game_number DESC
-            limit 1)
-            order by game_number asc
-            limit 1
-            """, self.conn, params=[now])
+            f"""
+            SELECT activate_at
+            FROM Games g
+            WHERE game_number > (
+                SELECT game_number
+                FROM Games
+                WHERE activate_at < {self.param_key}
+                ORDER BY game_number DESC
+                LIMIT 1
+            )
+            ORDER BY game_number ASC
+            LIMIT 1
+            """,
+            self.conn,
+            params=[now]
+        )
 
         if not next_game.empty:
-            return next_game.iloc[0].to_dict()['activate_at']
+            return str(next_game.iloc[0].to_dict()['activate_at'])
 
         return None
 
@@ -512,6 +650,42 @@ class FootballDBHandler:
         # Reset singleton state
         type(self)._instance = None
         type(self)._initialized = False
+
+    def migrate_players(self, sqlite_path: str, pg_conn):
+        # Step 1: Connect to SQLite
+        sqlite_conn = sqlite3.connect(sqlite_path)
+        sqlite_cursor = sqlite_conn.cursor()
+
+        # Step 2: Fetch all players
+        sqlite_cursor.execute("SELECT * FROM Players")
+        players = sqlite_cursor.fetchall()
+
+        # Get column names
+        columns = [desc[0] for desc in sqlite_cursor.description]
+
+        # Step 3: Prepare INSERT for PostgreSQL
+        placeholders = ", ".join(["%s"] * len(columns))
+        column_names = ", ".join(columns)
+        insert_query = f"""
+            INSERT INTO Players ({column_names})
+            VALUES ({placeholders})
+            ON CONFLICT (id) DO NOTHING;
+        """
+
+        pg_conn = psycopg2.connect(
+            dbname=PG_DATABASE,
+            user=PG_USER,
+            host=PG_HOST,
+            port="5432"
+        )
+
+        # Step 4: Insert into PostgreSQL
+        with pg_conn.cursor() as pg_cursor:
+            execute_batch(pg_cursor, insert_query, players)
+            pg_conn.commit()
+
+        # Step 5: Close SQLite connection
+        sqlite_conn.close()
 
     def __del__(self):
         # Ensure connection is closed when instance is destroyed

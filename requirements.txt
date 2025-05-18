@@ -9,3 +9,6 @@ openai
 gunicorn
 uvicorn[standard]
 python-multipart
+psycopg2
+sqlalchemy
+psycopg2-binary

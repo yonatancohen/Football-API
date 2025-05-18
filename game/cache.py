@@ -25,7 +25,6 @@ class GameCacheService:
 
                 return entry["data"]
             result = self.db.get_customer_game(game_number)
-
             if result:
                 self.by_id_cache[game_number] = {
                     "data": result,
