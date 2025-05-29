@@ -2,7 +2,7 @@
 
 In order to start FastAPI, run the following command:
 ```bash
-    python3 -m uvicorn api:app --reload --log-level debug
+    python3 -m uvicorn main:app --reload --log-level debug
 ```
 
 ## Development ##
@@ -16,7 +16,7 @@ DATABASE_URL=postgresql://yonicohen@localhost:5432/guess_game_db
 .env file should contain the following variables:
 
 ```
-postgresql+psycopg2://guess_game_user:guess_game_AY_password#@db:5432/guess_game_db
+postgresql+psycopg2://guess_game_user:guess_game_AY_password@db:5432/guess_game_db
 ```
 
 

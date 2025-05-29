@@ -6,6 +6,9 @@ import atexit
 
 from datetime import datetime
 from typing import Optional
+
+from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+
 from common import DB_FILE_NAME, DEFAULT_DB_TYPE
 from sqlalchemy import create_engine
 
@@ -28,23 +31,13 @@ class FootballDBHandler:
             # Already initialized, skip table creation
             return
 
+        self.param_key = None
+        self.conn = None
+        self.engine = None
+
         self.db_type = db_type
-        if self.db_type == "sqlite":
-            self.conn = sqlite3.connect(DB_FILE_NAME)
-            self.conn.execute("PRAGMA foreign_keys = ON")
-            self.conn.execute("PRAGMA journal_mode = WAL")
-            self.param_key = '?'
-        elif self.db_type == "postgresql":
-            DATABASE_URL = os.getenv("DATABASE_URL")
-            print('DATABASE_URL', DATABASE_URL)
+        self.init_db_type()
 
-            self.engine = create_engine(DATABASE_URL)
-            self.conn = self.engine.raw_connection()
-            self.param_key = '%s'
-        else:
-            raise ValueError("Unsupported database type")
-
-        # First-time setup
         self.create_tables()
 
         # Register cleanup on program exit
@@ -52,6 +45,90 @@ class FootballDBHandler:
 
         # Mark as initialized to prevent re-creating tables
         type(self)._initialized = True
+
+    def init_db_type(self):
+        if self.db_type == "sqlite":
+            self.conn = sqlite3.connect(DB_FILE_NAME)
+            self.conn.execute("PRAGMA foreign_keys = ON")
+            self.conn.execute("PRAGMA journal_mode = WAL")
+            self.param_key = '?'
+        elif self.db_type == "postgresql":
+            self.engine = self.create_db()
+            self.conn = self.engine.raw_connection()
+            self.param_key = '%s'
+        else:
+            raise ValueError("Unsupported database type")
+
+    def create_db(self):
+        if self.db_type == "postgresql":
+            def _create_database():
+                """
+                Create the database if it doesn't exist.
+                """
+                conn = psycopg2.connect(dbname="postgres", user=user, password=password, host=host, port=port)
+                conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+                cursor = conn.cursor()
+
+                cursor.execute(f"CREATE DATABASE {db_name}")
+
+                cursor.close()
+                conn.close()
+
+            def _grant_permissions():
+                """
+                Grant all privileges to the user on the database.
+                """
+                grant_privileges_sql = f"GRANT ALL PRIVILEGES ON DATABASE {db_name} TO {user};"
+                with psycopg2.connect(host=host, port=port, user=user) as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(grant_privileges_sql)
+
+            def _load_data_from_sql_file(sql_file_path):
+                with open(sql_file_path, 'r', encoding='utf-8') as f:
+                    sql_commands = f.read()
+
+                with psycopg2.connect(dbname=db_name, host=host, port=port, user=user) as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(sql_commands)
+                    conn.commit()
+
+            def _setup_postgres_db(sql_file_path):
+                """
+                Set up the PostgreSQL database.
+                """
+
+                # Check if the database exists
+                with psycopg2.connect(host=host, port=port, user=user) as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (db_name,))
+                        if not cur.fetchone():
+                            _create_database()
+                            _grant_permissions()
+
+                with psycopg2.connect(dbname=db_name, host=host, port=port, user=user) as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'games'")
+                        res = cur.fetchone()
+                        if not res:
+                            # Database doesn't exist, load data from .sql file
+                            _load_data_from_sql_file(sql_file_path)
+
+                # Create the engine with the correct database name
+                return create_engine(db_url)
+
+            # Data
+            db_url = os.getenv("DATABASE_URL")
+            db_name = db_url.split("/")[-1]
+
+            user_password = db_url.split("://")[1].split("@")[0].split(':')
+            password = user_password[1] if len(user_password) > 1 else None
+
+            user = user_password[0]
+            host = db_url.split("@")[1].split(":")[0]
+            port = db_url.split(":")[-1].split("/")[0]
+
+            # Call the setup function
+            return _setup_postgres_db("raw_db.sql")
 
     def create_tables(self):
         cursor = self.conn.cursor()
@@ -467,7 +544,7 @@ class FootballDBHandler:
             self.conn.commit()
 
     def get_customer_game(self, game_number: Optional[int]):
-        now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        now = datetime.utcnow()
 
         if game_number:
             query = f"""
@@ -486,6 +563,8 @@ class FootballDBHandler:
                 LIMIT 1
             """
             game = pd.read_sql_query(query, self.conn, params=[now])
+
+            print('game empty?', game.empty)
 
         if not game.empty:
             return game.iloc[0].to_dict()
@@ -622,8 +701,7 @@ class FootballDBHandler:
     def get_countdown(self):
         now = datetime.utcnow()
 
-        next_game = pd.read_sql_query(
-            f"""
+        query = f"""
             SELECT activate_at
             FROM Games g
             WHERE game_number > (
@@ -635,10 +713,8 @@ class FootballDBHandler:
             )
             ORDER BY game_number ASC
             LIMIT 1
-            """,
-            self.conn,
-            params=[now]
-        )
+            """
+        next_game = pd.read_sql_query(query, self.conn, params=[now])
 
         if not next_game.empty:
             return str(next_game.iloc[0].to_dict()['activate_at'])
