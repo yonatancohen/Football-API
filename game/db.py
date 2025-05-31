@@ -564,8 +564,6 @@ class FootballDBHandler:
             """
             game = pd.read_sql_query(query, self.conn, params=[now])
 
-            print('game empty?', game.empty)
-
         if not game.empty:
             return game.iloc[0].to_dict()
 
